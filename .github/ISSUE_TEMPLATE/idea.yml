@@ -1,0 +1,29 @@
+name: Idea or feedback
+description: Make the template easier to start from.
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The template should stay minimal: one small working shard that teaches the moving parts. Bigger examples are welcome as their own shards.
+        Ideas are judged against [`SCOPE.md`](https://github.com/brokspace/brok/blob/main/SCOPE.md).
+  - type: checkboxes
+    id: read-scope
+    attributes:
+      label: Before filing
+      options:
+        - label: I've read `SCOPE.md` and this keeps the template small.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What got in your way
+      description: What you were building from the template and where it slowed you down.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
