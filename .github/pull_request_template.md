@@ -15,8 +15,9 @@
 
 ## Checklist
 
-- [ ] PR title follows Conventional Commits (`feat(index): ...`, `fix(bus): ...`)
+- [ ] Targets `staging`; PR title follows Conventional Commits (`feat(index): ...`, `fix(bus): ...`)
 - [ ] `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and `cargo test` pass
 - [ ] User-visible changes are in `CHANGELOG.md` (Unreleased) and the docs
 - [ ] Protocol, manifest or config changes are backwards compatible, or an ADR / issue discusses the migration
 - [ ] The template still builds and passes CI after "Use this template" (names, `shard.json`, README steps)
+- [ ] Written with a coding agent? Its commits carry a `Co-Authored-By:` trailer, and a human read the diff
