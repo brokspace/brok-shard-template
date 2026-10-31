@@ -1,3 +1,9 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/brokspace-on-dark.svg">
+    <img src=".github/assets/brokspace.svg" alt="Brokspace" height="44">
+  </picture>
+</p>
 # brok-shard-template
 
 A ready-to-fork starting point for building a [Brokspace](https://github.com/brokspace/brok) **shard**: a
