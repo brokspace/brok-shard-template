@@ -6,8 +6,8 @@
 </p>
 # brok-shard-template
 
-A ready-to-fork starting point for building a [Brokspace](https://github.com/brokspace/brok) **shard**: a
-small standalone program that joins the workspace event bus, reacts to events and publishes new ones.
+A working starting point for a [Brokspace](https://github.com/brokspace/brok) **shard**: a small program
+that joins the workspace event bus, reacts to events and publishes new ones.
 
 The example shard is useful on its own: it listens to `file:changed` and publishes a `todo:found` event for
 every `TODO`, `FIXME` or `HACK` marker in the changed files.
@@ -16,96 +16,128 @@ every `TODO`, `FIXME` or `HACK` marker in the changed files.
 brok-agent ──file:changed──▶ bus ──▶ brok-shard-template ──todo:found──▶ bus ──▶ anyone subscribed
 ```
 
-## Build your own shard in 5 minutes
+New to shards? The [tutorial](https://github.com/brokspace/brok/blob/staging/docs/shard-tutorial.md) explains each idea; this README is the
+short path.
 
-### 1. Create your repository
+## Build your own shard, step by step
 
-Click **Use this template** on GitHub (or clone this repository), and clone
-[`brok-sdk`](https://github.com/brokspace/brok-sdk) next to it — until the SDK is on crates.io it is a path
-dependency:
+You need [brok](https://brokspace.org/docs/getting-started) 0.8 or newer, [Rust](https://rustup.rs) 1.88 or
+newer and git.
 
-```text
-my-shards/
-├── brok-sdk/
-└── brok-todo-alerts/      ← your copy of this template
-```
-
-### 2. Rename it
-
-Pick a name matching `^[a-z][a-z0-9-]{1,63}$` and replace `brok-shard-template` in:
-
-| File | Field |
-|---|---|
-| `Cargo.toml` | `name`, `description`, `repository` |
-| `shard.json` | `name`, `description`, `repository`, `entrypoint` (`bin/<name>`), `build.artifact` (`target/release/<name>`) |
-| `.github/workflows/release.yml` | `BIN` |
-
-`cargo test` checks that the manifest and the code agree, so a missed spot fails fast.
-
-### 3. Implement your handler
-
-The code is split so that the interesting part stays easy to test:
-
-| File | Role |
-|---|---|
-| `src/scanner.rs` | Your domain logic: plain synchronous functions with unit tests. |
-| `src/payload.rs` | The events you publish: one struct per topic, bound with `brok_sdk::Payload`. |
-| `src/main.rs` | Wiring: connect, subscribe, loop over the inbox, publish. |
-
-The whole event loop is a dozen lines:
-
-```rust
-let (client, mut inbox) = BrokClient::connect_from_env(NAME, env!("CARGO_PKG_VERSION")).await?;
-client.subscribe([TopicPattern::new("file:changed")?]).await?;
-
-while let Some(event) = inbox.recv().await {
-    if event.is::<Shutdown>() { break; }
-    if let Ok(change) = event.decode::<FileChanged>() {
-        for todo in scan(&change) {
-            client.emit(&todo).await?;            // published on TodoFound::TOPIC
-        }
-    }
-}
-```
-
-Other things the client can do:
-
-- `client.context()` — workspace root, your `settings` from `brok.yml`, the LLM routing table.
-- `client.call::<SearchRequest, SearchResults>(&req, timeout)` — typed request/reply, e.g. hybrid search
-  through the core index.
-- `client.reply(&request, &payload)` — answer a request; replies go only to the requester.
-
-Update `shard.json` whenever you subscribe or publish a new topic — the bus enforces it.
-
-### 4. Try it in a workspace
+### 1. Create the project
 
 ```sh
-cd ~/my-project            # any directory initialized with `brok init`
-brok shard install ../brok-todo-alerts     # builds with the manifest's build command
-brok run                                   # starts the bus, brok-agent and your shard
+brok shard new todo-alerts     # clones this template and renames it everywhere
+cd todo-alerts
+cargo test
 ```
 
-In another terminal, watch your events and trigger some:
+Or click **Use this template** on GitHub, then replace `brok-shard-template` in `Cargo.toml`, `shard.json`
+and the `BIN` variable of `.github/workflows/release.yml`. Names match `^[a-z][a-z0-9-]{1,63}$`.
+`cargo test` fails if the manifest and the code disagree.
+
+| File | What you change |
+|---|---|
+| `src/scanner.rs` | Your logic: plain functions with unit tests, no bus involved. |
+| `src/payload.rs` | The events you publish: one struct per topic. |
+| `src/main.rs` | The wiring: connect, subscribe, handle events, exit on `system:shutdown`. |
+| `shard.json` | Name, permissions, topics and how to build. |
+
+### 2. Run it in a workspace
+
+From a project you can experiment in (any git repository):
+
+```sh
+cd ~/my-project
+brok init                                   # once per project
+brok shard install ../todo-alerts           # shows the permissions and asks before installing
+brok start                                  # bus, brok-agent and your shard, in the background
+```
+
+In another terminal watch your events:
 
 ```sh
 brok bus tail 'todo:*'
-echo "// TODO: try brokspace" >> src/main.rs
 ```
 
-Logs written to stderr appear in the `brok run` output, prefixed with your shard name. Set
-`RUST_LOG=debug` for more.
+Then trigger the shard, either by editing a file (brok-agent publishes `file:changed`) or by publishing the
+event yourself:
+
+```sh
+echo '// TODO: try brokspace' >> src/main.rs
+brok bus emit file:changed '{"changed":["src/main.rs"],"deleted":[]}'
+```
+
+You should see something like:
+
+```text
+todo:found from todo-alerts {"line":2,"marker":"TODO","path":"src/main.rs","text":"try brokspace"}
+```
+
+### 3. Change it
+
+Edit the code, then reinstall and restart:
+
+```sh
+brok shard install ../todo-alerts --force   # --force: same version, new build
+brok restart
+```
+
+Your shard's log (everything it writes to stderr) is in `.brokspace/logs/todo-alerts.log`. For more detail,
+stop the background brok and run `RUST_LOG=debug brok run`.
+
+To make something configurable, read your settings from `brok.yml`:
+
+```yaml
+shards:
+  todo-alerts:
+    settings:
+      markers: [TODO, FIXME, XXX]
+```
+
+```rust
+// In `run()`, after connecting: `settings` is your `shards.<name>.settings` section.
+let markers: Vec<String> = client
+    .context()
+    .settings
+    .get("markers")
+    .and_then(|value| value.as_array())
+    .map(|list| list.iter().filter_map(|m| m.as_str().map(str::to_owned)).collect())
+    .unwrap_or_default();
+```
+
+To react to other events or publish new ones, change the code **and** `shard.json`: the bus rejects any
+topic the manifest does not list (see [Capabilities](#capabilities)).
+
+### 4. Check it
+
+```sh
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
 
 ### 5. Publish it
 
-1. Push a tag (`git tag v0.1.0 && git push --tags`). The release workflow builds Linux, macOS and Windows
-   binaries and attaches them with `.sha256` checksums.
-2. Copy the `releases` block printed in the workflow summary into `shard.json` and commit it.
-3. Anyone can now install your shard; `brok` downloads the binary for their platform and verifies its
-   checksum, or falls back to building from source:
+1. Push your repository, then a tag: `git tag v0.1.0 && git push --tags`. The release workflow builds Linux,
+   macOS and Windows binaries and attaches them with `.sha256` checksums.
+2. Copy the `releases` block from the workflow summary into `shard.json` and commit it.
+3. Anyone can now install it. brok downloads the binary for their platform and verifies the checksum, or
+   builds from source:
 
 ```sh
-brok shard install https://github.com/you/brok-todo-alerts --tag v0.1.0
+brok shard install https://github.com/you/todo-alerts --tag v0.1.0
 ```
+
+## When something does not work
+
+| You see | Why and what to do |
+|---|---|
+| `requires brok >=…, this is brok …` | The `brok` range in `shard.json` excludes your version. Widen it. |
+| Nothing arrives | Is brok running (`brok status`)? Is the topic in `subscribes_to`? Publish the event with `brok bus emit` to test without brok-agent. |
+| A publish or subscribe is rejected | Add the topic to `publishes_to` or `subscribes_to`, reinstall and restart. |
+| A variable is empty inside the shard | The environment is scrubbed: list it in `permissions.env`. |
+| Your change has no effect | Reinstall with `--force`, then `brok restart`. |
 
 ## The manifest (`shard.json`)
 
@@ -113,7 +145,7 @@ brok shard install https://github.com/you/brok-todo-alerts --tag v0.1.0
 {
   "name": "brok-shard-template",
   "version": "0.1.0",
-  "brok": ">=0.1.0, <0.2.0",
+  "brok": ">=0.8.0, <1.0.0",
   "entrypoint": "bin/brok-shard-template",
   "runtime": "native",
   "permissions": {

@@ -5,7 +5,7 @@
   "authors": ["Brokspace contributors"],
   "license": "MIT OR Apache-2.0",
   "repository": "https://github.com/brokspace/brok-shard-template",
-  "brok": ">=0.1.0, <0.2.0",
+  "brok": ">=0.8.0, <1.0.0",
   "entrypoint": "bin/brok-shard-template",
   "runtime": "native",
   "permissions": {
