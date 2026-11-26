@@ -42,3 +42,41 @@ jobs:
       - name: Test
         working-directory: shard
         run: cargo test --locked
+
+  # Not a required check: proves the scaffold installs and runs on the latest brok release.
+  install:
+    name: install on the latest brok
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: shard
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shard
+      - name: Download brok
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo brokspace/brok --pattern 'brok-linux-x86_64*' --dir dl
+          cd dl && echo "$(cut -d' ' -f1 brok-linux-x86_64.sha256)  brok-linux-x86_64" | sha256sum -c -
+          chmod +x brok-linux-x86_64 && sudo mv brok-linux-x86_64 /usr/local/bin/brok
+      - name: Install, run and receive an event
+        shell: bash
+        run: |
+          set -euo pipefail
+          shard="$PWD/shard"
+          name="$(sed -n 's/^name = "\(.*\)"/\1/p' "$shard/Cargo.toml" | head -1)"
+          mkdir ws && cd ws && git init -q && echo '// TODO: from CI' > main.rs
+          brok init --yes
+          brok shard install "$shard" --yes
+          brok start
+          trap 'brok stop' EXIT
+          timeout 30 brok bus tail 'todo:*' > tail.log 2>&1 &
+          for _ in $(seq 1 20); do
+            sleep 1
+            brok bus emit file:changed '{"changed":["main.rs"],"deleted":[]}'
+            grep -q 'todo:found' tail.log && break
+          done
+          grep 'todo:found' tail.log || { cat ".brokspace/logs/$name.log"; exit 1; }

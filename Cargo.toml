@@ -12,7 +12,7 @@ categories = ["development-tools"]
 
 [dependencies]
 anyhow = "1.0"
-brok-sdk = "0.1.1"
+brok-sdk = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.47", features = ["macros", "rt-multi-thread", "signal"] }
 tracing = "0.1"

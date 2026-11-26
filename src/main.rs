@@ -102,6 +102,11 @@ mod tests {
         assert_eq!(manifest.name, NAME);
         assert_eq!(manifest.version.to_string(), env!("CARGO_PKG_VERSION"));
 
+        // The scaffold must install on the current brok: keep the `brok` requirement
+        // in shard.json up to date (`brok shard install` refuses a shard that excludes it).
+        let requirement = manifest.brok.as_ref().expect("shard.json declares the brok versions it supports");
+        assert!(requirement.matches(&"0.8.0".parse().unwrap()), "{requirement} excludes the current brok");
+
         // Every topic we publish or subscribe to must be granted by the manifest,
         // otherwise the bus rejects it at runtime.
         let published = Topic::new(TodoFound::TOPIC).unwrap();
