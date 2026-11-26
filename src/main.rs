@@ -65,29 +65,42 @@ async fn run() -> anyhow::Result<()> {
 
 /// Scans every changed file and publishes one `todo:found` event per marker.
 async fn on_file_changed(client: &BrokClient, root: &Path, change: FileChanged) -> anyhow::Result<()> {
-    let root = root.to_path_buf();
-    // File I/O is blocking: keep it off the async runtime threads.
-    let found = tokio::task::spawn_blocking(move || {
-        change
-            .changed
-            .iter()
-            .flat_map(|path| {
-                scanner::scan_file(&root, path).unwrap_or_else(|e| {
-                    tracing::warn!(path, error = %e, "cannot scan file");
-                    Vec::new()
-                })
-            })
-            .collect::<Vec<TodoFound>>()
+    let markers = report_markers(root, change.changed, async |todo| {
+        client.emit(&todo).await?;
+        Ok(())
     })
     .await?;
-
-    for todo in &found {
-        client.emit(todo).await?;
-    }
-    if !found.is_empty() {
-        tracing::info!(markers = found.len(), "published todo:found events");
+    if markers > 0 {
+        tracing::info!(markers, "published todo:found events");
     }
     Ok(())
+}
+
+/// Scans `paths` one at a time and hands each marker to `publish` before the
+/// next file is read: one event can list thousands of files (a branch switch),
+/// so results are never collected for the whole batch. Returns their number.
+async fn report_markers(
+    root: &Path,
+    paths: Vec<String>,
+    mut publish: impl AsyncFnMut(TodoFound) -> anyhow::Result<()>,
+) -> anyhow::Result<usize> {
+    let mut markers = 0;
+    for path in paths {
+        let root = root.to_path_buf();
+        // File I/O is blocking: keep it off the async runtime threads.
+        let found = tokio::task::spawn_blocking(move || {
+            scanner::scan_file(&root, &path).unwrap_or_else(|e| {
+                tracing::warn!(path, error = %e, "cannot scan file");
+                Vec::new()
+            })
+        })
+        .await?;
+        for todo in found {
+            publish(todo).await?;
+            markers += 1;
+        }
+    }
+    Ok(markers)
 }
 
 #[cfg(test)]
@@ -95,6 +108,40 @@ mod tests {
     use brok_sdk::{Payload, ShardManifest, Topic};
 
     use super::*;
+
+    #[tokio::test]
+    async fn a_large_batch_is_published_file_by_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths: Vec<String> = (0..500).map(|i| format!("f{i}.rs")).collect();
+        for path in &paths {
+            std::fs::write(dir.path().join(path), "// TODO: before\n// FIXME: before\n").unwrap();
+        }
+        // An unreadable path (a directory) and a missing one do not stop the rest.
+        std::fs::create_dir(dir.path().join("folder.rs")).unwrap();
+        let mut batch = vec!["folder.rs".to_owned(), "missing.rs".to_owned()];
+        batch.extend(paths);
+
+        let mut published = Vec::new();
+        let count = report_markers(dir.path(), batch, async |todo| {
+            // Rewrite the next file while publishing this one: its new text is
+            // reported only if it had not been read yet.
+            let number: usize = todo.path.trim_start_matches('f').trim_end_matches(".rs").parse()?;
+            if number + 1 < 500 {
+                let next = dir.path().join(format!("f{}.rs", number + 1));
+                std::fs::write(next, "// TODO: after\n// FIXME: after\n")?;
+            }
+            published.push((todo.path, todo.marker, todo.text));
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(count, 1_000);
+        assert_eq!(published.len(), 1_000);
+        assert_eq!(published[0], ("f0.rs".to_owned(), "TODO".to_owned(), "before".to_owned()));
+        assert!(published[2..].iter().all(|(_, _, text)| text == "after"), "a file was read ahead of its turn");
+        assert_eq!(published[999].0, "f499.rs");
+    }
 
     #[test]
     fn manifest_matches_the_code() {
