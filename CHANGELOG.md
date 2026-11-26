@@ -8,15 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- The README is a verified step-by-step guide with troubleshooting, and CI installs the shard on the latest brok release and waits for its event.
 - A `file:changed` event is processed one file at a time, publishing each file's markers before reading the next, so a large batch no longer keeps every result in memory.
 
 ### Fixed
 
 - The scaffold installs on current brok: `shard.json` accepts brok 0.8 up to 1.0 (it required brok below 0.2, so `brok shard new` produced a shard that could not be installed), and uses `brok-sdk` 0.3.
-
-### Changed
-
-- The README is a verified step-by-step guide with troubleshooting, and CI installs the shard on the latest brok release and waits for its event.
 
 ## [0.1.0] - Unreleased
 
