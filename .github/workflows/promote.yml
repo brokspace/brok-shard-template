@@ -5,6 +5,8 @@ name: Promote
 on:
   push:
     branches: [staging, main]
+  # Run it by hand: gh workflow run Promote.
+  workflow_dispatch:
 
 permissions:
   contents: read
